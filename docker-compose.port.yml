@@ -14,7 +14,7 @@ services:
   prepare:
     image: qwen38-r9700:vllm-port
   amd-single:
-    image: qwen38-r9700:vllm-port
+    image: qwen38-r9700:vllm-port0280
     environment:
       VLLM_SOURCE: git
       EXPERIMENTAL: "1"
@@ -25,7 +25,7 @@ services:
       # upstream DFlash2+ROCm issue #53323 was filed against.
       DRAFT: /app/models/Qwen3.8-27B-DFlash2-zlab
   amd-batch:
-    image: qwen38-r9700:vllm-port
+    image: qwen38-r9700:vllm-port0280
     environment:
       VLLM_SOURCE: git
       EXPERIMENTAL: "1"

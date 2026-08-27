@@ -185,3 +185,14 @@ Motivation (checked 2026-08-27):
 - KVarN patches (recut for 6a9c69f) apply clean on v0.28.0: 0 failed hunks.
 - Stacked audit on v0.28.0: 12 applied / 0 failed / 4 skipped
   (3 drops + the redundant backport).
+
+## v0.28.0 re-tests (R9700, DFLASH_TOKENS=4, temp 0, 4x160 tok) - 2026-08-27
+
+| phase | acceptance | accept len | throughput |
+|---|---|---|---|
+| single stream | 38.9% | 1.56 | 50.5 tok/s |
+| batched (4) | 37.4% | 1.50 | 71.3 tok/s aggregate |
+
+Parity with the 6a9c69f+#53628 image (52.1 / 69.5), identical temp-0
+outputs (same tlen per prompt), 0 restarts. Serving stack now runs
+qwen38-r9700:vllm-port0280 via docker-compose.port.yml.
