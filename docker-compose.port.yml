@@ -18,11 +18,12 @@ services:
     environment:
       VLLM_SOURCE: git
       EXPERIMENTAL: "1"
-      # The on-disk W4A16 drafter was requantized against the OLD 0.27.1-era
-      # drafter architecture (it has attention_conv weights the native
-      # DFlash2Qwen3Model does not have) -- serve the ORIGINAL bf16 drafter,
-      # whose architecture matches upstream natively.
-      DRAFT: /app/models/Qwen3.8-27B-DFlash2
+      # Drafter architecture moved ON: the native DFlash2Qwen3Model is
+      # EAGLE-style (midlayer/aux-hidden-state) and does not load the older
+      # attention_conv generation (neither the incoai bf16 original nor our
+      # W4A16 requant of it). z-lab/Qwen3.8-27B-DFlash2 is the artifact the
+      # upstream DFlash2+ROCm issue #53323 was filed against.
+      DRAFT: /app/models/Qwen3.8-27B-DFlash2-zlab
   amd-batch:
     image: qwen38-r9700:vllm-port
     environment:

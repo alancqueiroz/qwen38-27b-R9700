@@ -127,3 +127,23 @@ dflash2-backport, dflash2-lookup-drafting, xgrammar-spec-terminated.
 qwen38-r9700:vllm-port builds end to end (git variant): vLLM 0.28.0.dev0 @ 6a9c69fa8513 + the #53628 diff, all 12 patches, and the KVarN port complete (12/12 port(kvarn-v2) markers). In-image probe: SWA-aware prefix kernel (12 SLIDING_WINDOW refs, PR #53628 markers present), ROCM_ATTN and KVARN backends registered, kvarn_k4v2_g128 CacheDType registered.
 
 Remaining before serving: on-GPU DFlash2 acceptance probes (single request first, then batched - the #53323 collapse is batch-only) and KV budget re-measurement for the new hybrid cache layout.
+
+## On-GPU DFlash2 probes (R9700, this image) - 2026-08-27
+
+Spec: SPEC=dflash2 DFLASH_TOKENS=7 CTX=fast PREFIX_CACHE=1, temperature 0,
+ignore_eos, 4x160-token requests per phase. PPT cap 260 W enforced.
+
+| phase | acceptance | accept len | throughput |
+|---|---|---|---|
+| single stream | 24.8% | 1.73 | ~33 tok/s |
+| batched (4) | 31.4% | 2.20 | measured jointly |
+
+- Output text coherent; NO target-logit corruption (0.27.1 verdict falsified).
+- NO batch-dependent collapse (#53323 pattern absent here).
+- Per-position acceptance decays smoothly 330/217/135/83/57/39/32.
+- Container stable: 0 restarts, no OOM.
+
+Reading: DFlash2 WORKS on RDNA4 on this tree. It is not the daily-driver
+speed king (daily MTP ~= 65 tok/s single stream) - with accept_len ~2 the
+7-token draft budget overshoots; DFLASH_TOKENS=3..4 is the obvious tuning
+follow-up, and KVarN CTX=huge is the reason this branch exists.
