@@ -27,7 +27,7 @@ FROM ${BASE_IMAGE}
 # exactly; the git variant exists for the upstream-port experiment tracked in
 # docs/port-vllm-upstream.md (branch amd-r9700-vllm-53628).
 ARG VLLM_SOURCE=sdist          # sdist | git
-ARG VLLM_GIT_REF=v0.27.1       # any vllm-project/vllm ref: tag or commit SHA
+ARG VLLM_GIT_REF=v0.27.1       # tag, or FULL 40-hex commit SHA (short SHAs are not fetchable refs on GitHub)
 ARG VLLM_REQ_REF=v0.27.1       # ref used for requirements/*.txt downloads
 ARG VLLM_UPSTREAM_PATCH=none   # file under patches/upstream/, applied pre-install in the git tree
 ARG VLLM_EXPECT_VERSION=0.27.1 # sdist: asserted after install | git: dist version to declare ('auto' derives from git tags)

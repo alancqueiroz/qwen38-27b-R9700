@@ -70,7 +70,7 @@ default sdist build remains byte-reproducible.
 
     docker build -f docker/Dockerfile.rocm \
       --build-arg VLLM_SOURCE=git \
-      --build-arg VLLM_GIT_REF=6a9c69fa8513 \
+      --build-arg VLLM_GIT_REF=6a9c69fa851389dcf1ee5d3a2363e27af665d26d \
       --build-arg VLLM_REQ_REF=v0.27.1 \
       --build-arg VLLM_UPSTREAM_PATCH=53628-prefix-prefill-swa-nan.diff \
       --build-arg VLLM_EXPECT_VERSION=<version.py value at the ref> \
