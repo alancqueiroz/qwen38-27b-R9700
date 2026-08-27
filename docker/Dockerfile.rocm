@@ -1,0 +1,123 @@
+# AMD Radeon AI PRO R9700 (RDNA4, gfx1201, 32 GB) variant of this repo's image.
+#
+# Same stack and same patches as the CUDA Dockerfile, built for ROCm:
+#   - torch 2.13.0+rocm7.2 (the SAME pin vllm==0.27.1 declares; taken from the
+#     pytorch ROCm index so the nvidia-* wheels never enter the dependency tree)
+#   - vllm 0.27.1 compiled from the PyPI sdist with VLLM_TARGET_DEVICE=rocm --
+#     there is no official 0.27.1 ROCm wheel, and AMD's rocm/vllm images carry
+#     older vLLM trees these patches were not cut against
+#   - every patch in patches/ applied, the KVarN KV cache installed, and
+#     verify.sh --install run at build time (CPU-only checks; nothing here
+#     initialises the GPU, loads weights or allocates VRAM)
+#
+# Host requirements: an amdgpu kernel driver that drives the R9700 (this box:
+# ROCm 6.4.2 userspace on the host, /dev/kfd present), and Docker with access
+# to /dev/kfd + /dev/dri/renderD128 for the container user;
+# docker-compose.amd.yml wires the devices and the video/render group ids.
+#
+#   docker compose -f docker-compose.amd.yml --profile single up -d
+#
+# See docs/amd.md for what ports, what substitutes for what, and the test
+# protocol that must wait until the card is free.
+
+ARG BASE_IMAGE=rocm/dev-ubuntu-24.04:7.2.4-complete
+FROM ${BASE_IMAGE}
+
+# The dev-complete base carries the full ROCm toolchain (hipcc, headers,
+# hipBLASLt...) under /opt/rocm; make the paths explicit for the vLLM HIP build.
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LD_LIBRARY_PATH=/opt/rocm/lib
+# cmake/ninja come from apt ON PURPOSE: vLLM's setup.py locates the binary via
+# the environment PATH of the pip build subprocess, which is not the venv's bin
+# dir -- relying on pip's cmake package broke here in ways that differed between
+# two consecutive builds with identical inputs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.12 python3.12-venv python3.12-dev \
+      build-essential patch curl ca-certificates pkg-config cmake ninja-build git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN python3.12 -m venv venv && venv/bin/pip install --upgrade pip
+
+# Layer 1: torch. Pinned WITH the +rocm7.2 local version so the specifier can
+# only match the ROCm wheel; --index-url keeps PyPI out of the resolution.
+RUN venv/bin/pip install \
+      --index-url https://download.pytorch.org/whl/rocm7.2 \
+      torch==2.13.0+rocm7.2 \
+      torchvision==0.28.0+rocm7.2 \
+      torchaudio==2.11.0+rocm7.2
+
+# Layer 2: every other dependency. Upstream's OWN lists first (they are the
+# source of truth and carry no CUDA-only entry), then this repo's pins on top.
+# See requirements-rocm.txt for why flashinfer-python is deliberately absent.
+COPY docker/requirements-rocm.txt docker/requirements-rocm.txt
+RUN set -e; \
+    curl -sSL -o /tmp/common.txt https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/common.txt; \
+    curl -sSL -o /tmp/rocm.txt https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/rocm.txt; \
+    venv/bin/pip install -r /tmp/common.txt -r /tmp/rocm.txt; \
+    venv/bin/pip install -r docker/requirements-rocm.txt; \
+    # xgrammar (upstream common.txt) requires a distribution literally named
+    # 'triton'; the HIP build ships as 'triton-rocm', so the resolver above pulls
+    # NVIDIA triton from PyPI and its files share -- and clobber -- the same
+    # triton/ package directory torch's build owns. Restore ours LAST.
+    # --force-reinstall is load-bearing: a plain install sees triton-rocm's
+    # dist-info still present ('already satisfied') and repairs nothing, even
+    # though uninstalling the NVIDIA dist just deleted shared files.
+    venv/bin/pip uninstall -y triton triton-rocm >/dev/null 2>&1 || true; \
+    venv/bin/pip install --no-deps --force-reinstall --index-url https://download.pytorch.org/whl/rocm7.2 'triton-rocm==3.7.1'; \
+    venv/bin/python -c "import triton; assert hasattr(triton, 'language'), 'triton tree is broken'; print('triton', triton.__version__, '(HIP) OK')"
+
+# Layer 3: vLLM 0.27.1 from source, targeting ROCm. --no-deps: the dep tree was
+# installed by hand above and the metadata would try to pull the CUDA stack.
+# The HIP compile of csrc dominates this image's build time (tens of minutes on
+# 16 cores); everything after this layer is cheap.
+# The sdist URL is pinned because we must NOT let pip touch it: 'pip download
+# --no-binary' prepares PEP517 metadata in an isolated env, and vLLM's
+# [build-system].requires includes 'torch == 2.13.0' -- isolation would pull the
+# whole CUDA torch stack just to read a version. curl + tar + --no-build-isolation
+# keeps every build requirement inside OUR venv (torch is already satisfied there).
+RUN set -e; \
+    cd /tmp; \
+    curl -sSL -o vllm.tar.gz https://files.pythonhosted.org/packages/97/fa/a3cb3a7baf9f1f1027580b0542e42f655b0f577b8a8d39878c1c0a73e6a9/vllm-0.27.1.tar.gz; \
+    tar xf vllm.tar.gz; \
+    cd vllm-0.27.1; \
+# MAX_JOBS = half the cores: each HIP compile job peaks around 1-1.5 GB, and
+# this box shares RAM with other workloads (a serving agent held ~13 GB while
+# the full-width build thrashed).
+    VLLM_TARGET_DEVICE=rocm PYTORCH_ROCM_ARCH=gfx1201 GPU_TARGETS=gfx1201 MAX_JOBS=$(( $(nproc) / 2 )) \
+      /app/venv/bin/pip install --no-deps --no-build-isolation .; \
+    cd /; rm -rf /tmp/sdist /tmp/vllm-0.27.1; \
+    /app/venv/bin/python -c 'import vllm; assert vllm.__version__ == "0.27.1", vllm.__version__; print("vllm", vllm.__version__, "(ROCm build) OK")'
+
+# Layer 3b: amdsmi -- REQUIRED at runtime, kept out of the requirements file on
+# purpose (cache locality): vLLM's rocm_platform_plugin() decides the platform
+# by importing it and enumerating processors. Without it current_platform stays
+# UnspecifiedPlatform and every `vllm serve` dies at
+# "RuntimeError: Failed to infer device type" before loading anything.
+# torch itself never needs it; verify.sh's GPU probe therefore passes either way,
+# which is exactly why this failed silently until first boot.
+RUN set -e; /app/venv/bin/pip install amdsmi==7.0.2; \
+    /app/venv/bin/python -c "import amdsmi; amdsmi.amdsmi_init(); hs = amdsmi.amdsmi_get_processor_handles(); amdsmi.amdsmi_shut_down(); print('amdsmi OK,', len(hs), 'processor handle(s)')"
+
+# Layer 4: this repo -- patches, KVarN, verification. All CPU-only.
+COPY . .
+RUN set -e; SP=$(venv/bin/python -c 'import vllm, os; print(os.path.dirname(vllm.__file__))' | tail -n1); \
+    echo "patching vLLM at $SP"; \
+    for p in patches/*.patch; do echo "== $p"; patch -p1 -d "$SP" < "$p"; done; \
+    PY=/app/venv/bin/python bash kvarn/install.sh; \
+    PY=/app/venv/bin/python bash verify.sh --install
+
+# HOME is a volume: torch.compile cache (~/.cache/vllm), Triton (~/.triton),
+# HF hub cache. No FlashInfer JIT directory here -- there is no FlashInfer.
+RUN mkdir -p /cache /app/models && chmod 1777 /cache
+ENV HOME=/cache \
+    VLLM_NO_USAGE_STATS=1 \
+    DO_NOT_TRACK=1 \
+    HF_HUB_ENABLE_HF_TRANSFER=1
+VOLUME ["/cache", "/app/models"]
+EXPOSE 18020
+ENTRYPOINT ["bash", "docker/entrypoint.sh"]
+CMD ["amd-single"]

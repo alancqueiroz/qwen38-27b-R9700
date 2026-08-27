@@ -1,0 +1,40 @@
+# The AMD/ROCm counterpart of docker/requirements.txt.
+#
+# The bulk of the dependency tree comes straight from UPSTREAM at the same tag,
+# installed by the Dockerfile before this file:
+#   https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/common.txt
+#   https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/rocm.txt
+# Hand-picking that list here broke twice (cbor2 today, something else tomorrow);
+# upstream's own lists are the source of truth and carry no CUDA-only entry.
+#
+# What this file adds on top:
+#   1. Build-toolchain pins -- the vLLM source install runs with
+#      --no-build-isolation, i.e. against THIS venv (mirrors [build-system]
+#      requires @v0.27.1).
+#   2. The exact pins the README numbers were measured against (same values as
+#      docker/requirements.txt on the CUDA side), applied after upstream's looser
+#      ranges so both platforms resolve identically.
+#   3. pandas for bench/run_benchmarks.sh ('vllm bench serve' imports it through
+#      a PlaceholderModule; installing vllm[bench] instead would reinstall vLLM
+#      and revert the whole patch stack).
+#
+# Deliberately ABSENT:
+#   flashinfer-python   CUDA-only. has_flashinfer() returns False and every
+#                       caller takes its documented fallback (DFlash2 selector
+#                       -> torch.topk; no fp8 KV cache). docs/amd.md.
+setuptools>=77.0.3,<81.0.0
+wheel
+packaging>=24.2
+ninja==1.13.0
+cmake>=3.27
+setuptools-scm>=8.0
+setuptools-rust>=1.9.0
+jinja2
+
+transformers==5.15.0
+tokenizers==0.22.2
+compressed-tensors==0.17.0
+huggingface_hub==1.27.0
+hf_transfer==0.1.9
+
+pandas==3.0.5

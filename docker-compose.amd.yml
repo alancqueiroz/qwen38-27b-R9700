@@ -1,0 +1,70 @@
+# Qwen3.8-27B on one AMD Radeon AI PRO R9700 (RDNA4, gfx1201, 32 GB), containerized.
+# The ROCm counterpart of docker-compose.yml -- see docs/amd.md.
+#
+#   docker compose -f docker-compose.amd.yml run --rm prepare       # download + requantize (CPU-only)
+#   docker compose -f docker-compose.amd.yml --profile single up -d # low latency (MTP / SPEC=dflash2)
+#   docker compose -f docker-compose.amd.yml --profile batch  up -d # throughput
+#
+# GPU access: the container gets /dev/kfd + /dev/dri and joins the host's
+# video/render groups BY GID (container uids are not the host's). This machine:
+# video=44, render=992 ('id' on the host); override in .env if they differ.
+#
+# Every knob of the NVIDIA stack keeps its name in .env (SPEC, CTX,
+# DFLASH_TOKENS, PREFIX_CACHE, KV_MEM, MAX_SEQS, EXTRA_ARGS, ...) -- the AMD
+# launch scripts read the same variables. PORT and MODELS_DIR are read here.
+# One GPU: run either 'single' or 'batch', not both.
+
+x-qwen-amd: &qwen-amd
+  image: qwen38-27b-r9700:latest
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.rocm
+  ipc: host
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    HOME: /cache
+  devices:
+    - /dev/kfd
+    - /dev/dri
+  group_add:
+    - "${VIDEO_GID:-44}"
+    - "${RENDER_GID:-992}"
+  volumes:
+    - ${MODELS_DIR:-./models}:/app/models
+    - qwen-cache-amd:/cache
+
+x-serve-amd: &serve-amd
+  <<: *qwen-amd
+  ports:
+    - "${PORT:-18020}:${PORT:-18020}"
+  depends_on:
+    prepare:
+      condition: service_completed_successfully
+  restart: unless-stopped
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://127.0.0.1:${PORT:-18020}/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 1200s   # first start: torch.compile + HIP graph capture; slower than a CUDA first boot
+
+services:
+  prepare:
+    <<: *qwen-amd
+    command: prepare
+
+  amd-single:
+    <<: *serve-amd
+    profiles: [single]
+    command: amd-single
+
+  amd-batch:
+    <<: *serve-amd
+    profiles: [batch]
+    command: amd-batch
+
+volumes:
+  qwen-cache-amd:

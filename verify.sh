@@ -27,22 +27,51 @@ VER=$($PY -c "import vllm; print(vllm.__version__)" 2>/dev/null | tail -n1)
 [ "$VER" = "0.27.1" ] && ok "vllm $VER" || warn "vllm ${VER:-missing} (patches were written against 0.27.1)"
 SP=$($PY -c "import vllm, os; print(os.path.dirname(vllm.__file__))" 2>/dev/null | tail -n1)
 [ -n "$SP" ] && [ -d "$SP" ] && ok "vllm package at $SP" || { fail "cannot import vllm with $PY"; exit 1; }
+# CUDA or HIP build of torch? Decides the GPU-probe wording below and whether
+# FlashInfer is a requirement at all (it does not build for ROCm; docs/amd.md).
+ROCM=$($PY -c "import torch; assert torch.version.hip" >/dev/null 2>&1 && echo 1 || echo 0)
 if [ $INSTALL = 0 ]; then
-$PY - <<'EOF' 2>/dev/null || fail "torch cannot see a CUDA GPU"
+$PY - <<'EOF' 2>/dev/null || fail "torch cannot see a GPU"
 import torch; assert torch.cuda.is_available()
 p=torch.cuda.get_device_properties(0)
-print(f"  PASS  GPU: {p.name}, {p.total_memory/2**30:.1f} GiB, sm{p.major}{p.minor}, torch {torch.__version__}")
+kind = ("hip" + str(torch.version.hip)) if torch.version.hip else ("sm%d%d" % (p.major, p.minor))
+print(f"  PASS  GPU: {p.name}, {p.total_memory/2**30:.1f} GiB, {kind}, torch {torch.__version__}")
 EOF
-command -v nvidia-smi >/dev/null && { PL=$(nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits | head -1); ok "power limit ${PL} W (README numbers are at 250 W)"; }
+[ "$ROCM" = 0 ] && command -v nvidia-smi >/dev/null && { PL=$(nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits | head -1); ok "power limit ${PL} W (README numbers are at 250 W)"; }
 fi
 for t in triton compressed_tensors; do $PY -c "import $t" 2>/dev/null && ok "python module $t" || fail "python module $t missing"; done
 # a bare `import flashinfer` passes while vLLM still falls back to torch.topk:
 # has_flashinfer() additionally wants nvcc on PATH or the flashinfer-cubin
 # package (#35). Test what the server will actually use.
 export FLASHINFER_DISABLE_VERSION_CHECK=1  # cubin publishes 0.6.13 vs python 0.6.16.post3; the launchers export this too
+if [ "$ROCM" = 1 ]; then
+  $PY -c "from vllm.utils.flashinfer import has_flashinfer; assert has_flashinfer()" 2>/dev/null \
+    && warn "flashinfer present on a ROCm build? unexpected -- check what it resolves to" \
+    || ok "flashinfer absent, expected on ROCm: the DFlash2 selector takes its documented torch.topk fallback and fp8 KV is unavailable (docs/amd.md)"
+else
 $PY -c "from vllm.utils.flashinfer import has_flashinfer; assert has_flashinfer()" 2>/dev/null \
   && ok "flashinfer usable by vLLM (nvcc or flashinfer-cubin present)" \
-  || fail "flashinfer unusable: DFlash2 selector will run torch.topk at ~half speed. pip install flashinfer-python flashinfer-cubin==0.6.13 (#35)" 
+  || fail "flashinfer unusable: DFlash2 selector will run torch.topk at ~half speed. pip install flashinfer-python flashinfer-cubin==0.6.13 (#35)"
+fi
+
+# ROCm only: the environment must carry the HIP build of Triton. Upstream deps
+# pull a dist literally named 'triton' (NVIDIA-only) whose files share the
+# package dir with torch's triton-rocm; whoever installs last silently wins and
+# the first HIP kernel compile fails far from the cause. CPU-only check.
+if [ "$ROCM" = 1 ]; then
+$PY - <<'EOF' 2>/dev/null || fail "triton is not the HIP build: a 'triton' dist (NVIDIA) shadowed triton-rocm. docker/Dockerfile.rocm restores it as its last dependency step; see docs/amd.md"
+import importlib.metadata as im
+from pathlib import Path
+import triton
+assert Path(triton.__file__).parent.joinpath("backends", "amd").is_dir(), "no backends/amd"
+try:
+    im.version("triton")
+    raise SystemExit("NVIDIA 'triton' dist still installed alongside triton-rocm")
+except im.PackageNotFoundError:
+    pass
+print(f"  PASS  triton {triton.__version__} (triton-rocm, HIP)")
+EOF
+fi
 
 echo "== vLLM patches (patches/*.patch)"
 # The reverse dry-run is exact, but two patches touching the same file (the DFlash2 pair)

@@ -11,11 +11,18 @@ set -e
 cd /app
 cmd=${1:-single}; shift || true
 case "$cmd" in
-  single|batch)
+  single|batch|amd-single|amd-batch)
     if [ "${VERIFY:-1}" != "0" ]; then
       bash verify.sh --no-server || { echo "entrypoint: verify.sh FAILED — fix the above or set VERIFY=0"; exit 1; }
     fi
-    if [ "$cmd" = single ]; then exec bash single-user/start_qwen.sh "$@"; else exec bash batch/start_qwen.sh "$@"; fi ;;
+    # amd-* dispatch to the ROCm launch scripts (docker/Dockerfile.rocm image,
+    # docs/amd.md); same verify gate, same env contract.
+    case "$cmd" in
+      single)     exec bash single-user/start_qwen.sh "$@" ;;
+      batch)      exec bash batch/start_qwen.sh "$@" ;;
+      amd-single) exec bash single-user/start_qwen_amd.sh "$@" ;;
+      amd-batch)  exec bash batch/start_qwen_amd.sh "$@" ;;
+    esac ;;
   prepare) exec bash docker/prepare.sh "$@" ;;
   verify)  exec bash verify.sh "$@" ;;
   *)       exec "$cmd" "$@" ;;
