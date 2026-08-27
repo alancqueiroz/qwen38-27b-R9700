@@ -121,3 +121,9 @@ dflash2-backport, dflash2-lookup-drafting, xgrammar-spec-terminated.
    git-variant build to fail at Layer 4 with an actionable message.
 2. First-boot GPU protocol (only when the card is free, PPT cap active):
    DFlash2 probes single-request before batched per the #53323 lesson.
+
+## Image build status: GREEN
+
+qwen38-r9700:vllm-port builds end to end (git variant): vLLM 0.28.0.dev0 @ 6a9c69fa8513 + the #53628 diff, all 12 patches, and the KVarN port complete (12/12 port(kvarn-v2) markers). In-image probe: SWA-aware prefix kernel (12 SLIDING_WINDOW refs, PR #53628 markers present), ROCM_ATTN and KVARN backends registered, kvarn_k4v2_g128 CacheDType registered.
+
+Remaining before serving: on-GPU DFlash2 acceptance probes (single request first, then batched - the #53323 collapse is batch-only) and KV budget re-measurement for the new hybrid cache layout.
