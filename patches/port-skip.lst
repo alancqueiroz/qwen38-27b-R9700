@@ -4,3 +4,4 @@
 # docs/port-vllm-upstream.md.
 dflash2-backport.patch
 dflash2-lookup-drafting.patch
+xgrammar-spec-terminated.patch

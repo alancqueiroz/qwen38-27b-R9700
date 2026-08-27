@@ -30,7 +30,7 @@ ARG VLLM_SOURCE=sdist          # sdist | git
 ARG VLLM_GIT_REF=v0.27.1       # any vllm-project/vllm ref: tag or commit SHA
 ARG VLLM_REQ_REF=v0.27.1       # ref used for requirements/*.txt downloads
 ARG VLLM_UPSTREAM_PATCH=none   # file under patches/upstream/, applied pre-install in the git tree
-ARG VLLM_EXPECT_VERSION=0.27.1 # asserted after install
+ARG VLLM_EXPECT_VERSION=0.27.1 # sdist: asserted after install | git: dist version to declare ('auto' derives from git tags)
 
 # The dev-complete base carries the full ROCm toolchain (hipcc, headers,
 # hipBLASLt...) under /opt/rocm; make the paths explicit for the vLLM HIP build.
@@ -102,6 +102,14 @@ RUN set -e; \
         echo "== upstream patch $VLLM_UPSTREAM_PATCH"; \
         patch -p1 -d /tmp/vllm-src < "/app/patches/upstream/$VLLM_UPSTREAM_PATCH"; \
       fi; \
+      if [ "$VLLM_EXPECT_VERSION" = auto ]; then \
+        VLLM_PV=$(git -C /tmp/vllm-src describe --tags --match 'v[0-9]*' --abbrev=12 2>/dev/null | sed -e 's/^v//'); \
+        [ -n "$VLLM_PV" ] || VLLM_PV=0.28.0.dev0; \
+      else \
+        VLLM_PV=$VLLM_EXPECT_VERSION; \
+      fi; \
+      export SETUPTOOLS_SCM_PRETEND_VERSION=$VLLM_PV; \
+      echo "declared dist version: $VLLM_PV"; \
     else \
       cd /tmp; \
       curl -sSL -o vllm.tar.gz https://files.pythonhosted.org/packages/97/fa/a3cb3a7baf9f1f1027580b0542e42f655b0f577b8a8d39878c1c0a73e6a9/vllm-0.27.1.tar.gz; \
@@ -114,7 +122,10 @@ RUN set -e; \
     VLLM_TARGET_DEVICE=rocm PYTORCH_ROCM_ARCH=gfx1201 GPU_TARGETS=gfx1201 MAX_JOBS=$(( $(nproc) / 2 )) \
       /app/venv/bin/pip install --no-deps --no-build-isolation /tmp/vllm-src; \
     cd /; rm -rf /tmp/vllm-src /tmp/sdist /tmp/vllm-0.27.1; \
-    /app/venv/bin/python -c "import vllm; assert vllm.__version__ == '$VLLM_EXPECT_VERSION', vllm.__version__; print('vllm', vllm.__version__, '(ROCm build) OK')"
+    /app/venv/bin/python -c "import vllm; print('vllm', vllm.__version__, '(ROCm build) OK')"; \
+    if [ "$VLLM_SOURCE" != git ]; then \
+      /app/venv/bin/python -c "import vllm; assert vllm.__version__ == '$VLLM_EXPECT_VERSION', vllm.__version__"; \
+    fi
 
 # Layer 3b: amdsmi -- REQUIRED at runtime, kept out of the requirements file on
 # purpose (cache locality): vLLM's rocm_platform_plugin() decides the platform

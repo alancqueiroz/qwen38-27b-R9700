@@ -1,37 +1,22 @@
-Hybrid KV-cache group sizing for a small sliding-window bucket, and explicit CUDA-graph
-memory accounting for the V2 model runner. Both matter for single-user SPEC=dflash2; both are
-inert for every other config in this repo (verified: MTP mode's pool is bit-identical).
+Sliding-window-aware KV cache bucket grouping (vLLM port line 6a9c69fa8513).
 
-1. v1/core/kv_cache_utils.py — `_get_kv_cache_groups_uniform_page_size` sets the KV group size
-   to the SMALLEST bucket of same-type layers. With the DFlash2 drafter that bucket is its 5
-   sliding-window layers, so the target's 16 full-attention layers get padded to 20 and the 48
-   GDN layers to 50 ("Add 4 padding layers, may waste at most 25%"): 25% more memory for every
-   token of context, to pad layers that are not the problem. Sliding-window groups only ever
-   hold window-many blocks (the manager frees blocks behind the window), so padding THEM is
-   nearly free. `_prefer_padding_sliding_window_buckets` therefore picks the largest common
-   divisor of the non-sliding buckets instead, when the smallest bucket is sliding-window-only:
-   16/48/5 -> group size 8 (no full/GDN padding, 3 padding layers on the 5-layer window group,
-   which costs ~7 MB per request). Measured on the 3090: 105 -> 78 KB of pool per token, i.e.
-   45,383 tokens at 40k context -> 69,758 at 64k. MTP mode has no sliding-window bucket, takes
-   the early return, and keeps its 73,777-token pool.
+A small sliding-window bucket - e.g. a DFlash drafter's few SW layers next to
+the target's full-attention + mamba layers - forces group_size to its length
+and pads EVERY other group to that size. The manager only ever holds
+window-sized blocks behind a sliding window, so padding the sliding-window
+group is the cheap direction. When the smallest bucket is sliding-window-only,
+take the largest divisor-compatible group_size whose padding stays inside each
+sliding bucket.
 
-2. v1/worker/gpu/model_runner.py — the V1 runner profiles its CUDA graphs and the worker
-   subtracts the estimate from the KV budget; the V2 runner's `profile_cudagraph_memory`
-   returns 0 ("TBD"), so its ~1.2 GiB of graphs lands ON TOP of gpu_memory_utilization: ask for
-   0.93 and the process actually peaks near 0.98, which is how the DeltaNet spec path OOMs
-   mid-request (main README, gotcha 4). Profiling them the way V1 does needs a temporary KV
-   cache and graph pool; this instead makes the reservation explicit and measurable:
-   VLLM_V2_CUDAGRAPH_MEM_MIB=<MiB> is subtracted before the KV cache is sized (0 = upstream
-   behaviour). Read the real figure from the startup line "... and X GiB for CUDAGraph memory".
-   Note the profiled activation peak itself varies by ~1 GiB between starts on this model, so
-   for a fixed context length prefer pinning the pool with --kv-cache-memory (what
-   single-user/start_qwen.sh does for SPEC=dflash2) over tuning gpu_memory_utilization.
+Ported unchanged from the vLLM 0.27.1 stack (both kv_cache_utils hunks apply
+verbatim upstream).
 
-Apply from the installed vllm package directory:
-  patch -p1 -d venv/lib/python3.12/site-packages/vllm < patches/hybrid-kv-groups-v2-cudagraph.patch
-
-Written against vLLM 0.27.1. Reapply after upgrades.
-
+Removed vs the 0.27.1 version: the VLLM_V2_CUDAGRAPH_MEM_MIB fixed reservation
+in gpu/model_runner.py. Upstream now profiles CUDA-graph memory natively
+(vllm/v1/worker/gpu/cudagraph_utils.py::profile_cudagraph_memory boots a
+minimal KV cache, captures FULL/PIECEWISE/speculator graphs into a throwaway
+pool and reserves their cost before KV sizing), which supersedes the stopgap.
+See docs/port-vllm-upstream.md for the audit trail.
 --- a/v1/core/kv_cache_utils.py
 +++ b/v1/core/kv_cache_utils.py
 @@ -1137,6 +1137,51 @@
@@ -97,33 +82,3 @@ Written against vLLM 0.27.1. Reapply after upgrades.
      grouped_layers = []
      for layers in layer_buckets:
          num_padding_layers = group_size - len(layers) % group_size
---- a/v1/worker/gpu/model_runner.py
-+++ b/v1/worker/gpu/model_runner.py
-@@ -18,6 +18,7 @@
- """
- 
- import functools
-+import os
- import gc
- import time
- from copy import deepcopy
-@@ -751,6 +752,19 @@
- 
-     def profile_cudagraph_memory(self) -> int:
-         # NOTE(woosuk): It is TBD whether we keep this API or not.
-+        # (syv) Until V2 profiles its graphs like V1 does, reserve an explicit,
-+        # measured amount so gpu_memory_utilization covers them instead of the
-+        # graphs landing on top of the KV cache. Read the figure from the
-+        # "... GiB for CUDAGraph memory" line of a previous start.
-+        reserve_mib = float(os.environ.get("VLLM_V2_CUDAGRAPH_MEM_MIB", "0") or 0)
-+        if reserve_mib > 0 and self.compilation_config.cudagraph_mode != CUDAGraphMode.NONE:
-+            reserve = int(reserve_mib * 1024 * 1024)
-+            logger.info(
-+                "Reserving %.2f GiB for CUDA graphs before sizing the KV cache "
-+                "(VLLM_V2_CUDAGRAPH_MEM_MIB)",
-+                reserve / 2**30,
-+            )
-+            return reserve
-         return 0
- 
-     @torch.inference_mode()

@@ -48,10 +48,10 @@ number of failing patches.
 |---|---|---|
 | dflash2-backport | FAIL | DROP - native DFlash2 replaces it |
 | dflash2-lookup-drafting | FAIL | DROP - native path; re-measure acceptance |
-| hybrid-kv-groups-v2-cudagraph | FAIL | rebase needed |
-| spec-decode-int8-kv | FAIL | rebase needed |
-| vision-tower-cpu-offload | FAIL | rebase, low priority (text-only serving) |
-| xgrammar-spec-terminated | FAIL | rebase; check upstream fixed it natively |
+| hybrid-kv-groups-v2-cudagraph | FAIL->APPLIED | DONE - slimmed: dropped obsolete VLLM_V2_CUDAGRAPH_MEM_MIB hunk, upstream profiles graphs natively now |
+| spec-decode-int8-kv | FAIL->APPLIED | no changes needed - it targets our own spec_decode_attn.py created by an earlier patch; only stacked application is meaningful |
+| vision-tower-cpu-offload | FAIL->APPLIED | DONE - rebuilt against the refactored Qwen3-ViT init (merger/deepstack/blocks reordered); intent preserved |
+| xgrammar-spec-terminated | FAIL->SKIPPED | DONE - upstream ships exactly this semantics now; moved to port-skip.lst |
 | hybrid-sw-block-promote | OK | keep |
 | marlin-int8-layer-select | OK | keep |
 | marlin-int8-negative-scales | OK | keep |
@@ -100,3 +100,10 @@ example value after checking the target tag.
 
 This branch changes nothing on the served path. The default image build keeps
 the exact pinned sdist line; `main`/`amd-r9700` remain the PR-facing state.
+
+## Stacked-audit status (this branch, HEAD)
+
+`prepare/port_audit.sh` defaults to BUILD-ORDER simulation (skips honored,
+patches applied cumulatively): **12 applied / 0 failed / 3 skipped-dropped**.
+The three skips are permanent drops replaced by native upstream code:
+dflash2-backport, dflash2-lookup-drafting, xgrammar-spec-terminated.
