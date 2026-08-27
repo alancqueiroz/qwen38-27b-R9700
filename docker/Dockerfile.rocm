@@ -23,6 +23,15 @@
 ARG BASE_IMAGE=rocm/dev-ubuntu-24.04:7.2.4-complete
 FROM ${BASE_IMAGE}
 
+# Source-selection build args. Defaults reproduce the pinned 0.27.1 sdist line
+# exactly; the git variant exists for the upstream-port experiment tracked in
+# docs/port-vllm-upstream.md (branch amd-r9700-vllm-53628).
+ARG VLLM_SOURCE=sdist          # sdist | git
+ARG VLLM_GIT_REF=v0.27.1       # any vllm-project/vllm ref: tag or commit SHA
+ARG VLLM_REQ_REF=v0.27.1       # ref used for requirements/*.txt downloads
+ARG VLLM_UPSTREAM_PATCH=none   # file under patches/upstream/, applied pre-install in the git tree
+ARG VLLM_EXPECT_VERSION=0.27.1 # asserted after install
+
 # The dev-complete base carries the full ROCm toolchain (hipcc, headers,
 # hipBLASLt...) under /opt/rocm; make the paths explicit for the vLLM HIP build.
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -53,10 +62,13 @@ RUN venv/bin/pip install \
 # Layer 2: every other dependency. Upstream's OWN lists first (they are the
 # source of truth and carry no CUDA-only entry), then this repo's pins on top.
 # See requirements-rocm.txt for why flashinfer-python is deliberately absent.
+# The git variant needs patches/upstream/ available before Layer 3, so it is
+# copied here (small, CPU-only) instead of relying on the full COPY in Layer 4.
+COPY patches/upstream/ patches/upstream/
 COPY docker/requirements-rocm.txt docker/requirements-rocm.txt
 RUN set -e; \
-    curl -sSL -o /tmp/common.txt https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/common.txt; \
-    curl -sSL -o /tmp/rocm.txt https://raw.githubusercontent.com/vllm-project/vllm/v0.27.1/requirements/rocm.txt; \
+    curl -sSL -o /tmp/common.txt "https://raw.githubusercontent.com/vllm-project/vllm/${VLLM_REQ_REF}/requirements/common.txt"; \
+    curl -sSL -o /tmp/rocm.txt "https://raw.githubusercontent.com/vllm-project/vllm/${VLLM_REQ_REF}/requirements/rocm.txt"; \
     venv/bin/pip install -r /tmp/common.txt -r /tmp/rocm.txt; \
     venv/bin/pip install -r docker/requirements-rocm.txt; \
     # xgrammar (upstream common.txt) requires a distribution literally named
@@ -70,27 +82,39 @@ RUN set -e; \
     venv/bin/pip install --no-deps --force-reinstall --index-url https://download.pytorch.org/whl/rocm7.2 'triton-rocm==3.7.1'; \
     venv/bin/python -c "import triton; assert hasattr(triton, 'language'), 'triton tree is broken'; print('triton', triton.__version__, '(HIP) OK')"
 
-# Layer 3: vLLM 0.27.1 from source, targeting ROCm. --no-deps: the dep tree was
+# Layer 3: vLLM from source, targeting ROCm. --no-deps: the dep tree was
 # installed by hand above and the metadata would try to pull the CUDA stack.
 # The HIP compile of csrc dominates this image's build time (tens of minutes on
 # 16 cores); everything after this layer is cheap.
-# The sdist URL is pinned because we must NOT let pip touch it: 'pip download
-# --no-binary' prepares PEP517 metadata in an isolated env, and vLLM's
-# [build-system].requires includes 'torch == 2.13.0' -- isolation would pull the
-# whole CUDA torch stack just to read a version. curl + tar + --no-build-isolation
-# keeps every build requirement inside OUR venv (torch is already satisfied there).
+# In the default sdist variant the URL is pinned because we must NOT let pip
+# touch it: 'pip download --no-binary' prepares PEP517 metadata in an isolated
+# env, and vLLM's [build-system].requires includes 'torch == 2.13.0' --
+# isolation would pull the whole CUDA torch stack just to read a version.
+# curl + tar + --no-build-isolation keeps every build requirement inside OUR
+# venv (torch is already satisfied there). The git variant uses a blobless,
+# depth-1 fetch of an exact ref so the image stays reproducible per ref.
 RUN set -e; \
-    cd /tmp; \
-    curl -sSL -o vllm.tar.gz https://files.pythonhosted.org/packages/97/fa/a3cb3a7baf9f1f1027580b0542e42f655b0f577b8a8d39878c1c0a73e6a9/vllm-0.27.1.tar.gz; \
-    tar xf vllm.tar.gz; \
-    cd vllm-0.27.1; \
+    if [ "$VLLM_SOURCE" = git ]; then \
+      git clone --no-checkout --filter=blob:none https://github.com/vllm-project/vllm.git /tmp/vllm-src; \
+      git -C /tmp/vllm-src fetch --depth 1 origin "$VLLM_GIT_REF"; \
+      git -C /tmp/vllm-src checkout --detach FETCH_HEAD; \
+      if [ "$VLLM_UPSTREAM_PATCH" != none ]; then \
+        echo "== upstream patch $VLLM_UPSTREAM_PATCH"; \
+        patch -p1 -d /tmp/vllm-src < "/app/patches/upstream/$VLLM_UPSTREAM_PATCH"; \
+      fi; \
+    else \
+      cd /tmp; \
+      curl -sSL -o vllm.tar.gz https://files.pythonhosted.org/packages/97/fa/a3cb3a7baf9f1f1027580b0542e42f655b0f577b8a8d39878c1c0a73e6a9/vllm-0.27.1.tar.gz; \
+      tar xf vllm.tar.gz; \
+      mv vllm-0.27.1 vllm-src; \
+    fi; \
 # MAX_JOBS = half the cores: each HIP compile job peaks around 1-1.5 GB, and
 # this box shares RAM with other workloads (a serving agent held ~13 GB while
 # the full-width build thrashed).
     VLLM_TARGET_DEVICE=rocm PYTORCH_ROCM_ARCH=gfx1201 GPU_TARGETS=gfx1201 MAX_JOBS=$(( $(nproc) / 2 )) \
-      /app/venv/bin/pip install --no-deps --no-build-isolation .; \
-    cd /; rm -rf /tmp/sdist /tmp/vllm-0.27.1; \
-    /app/venv/bin/python -c 'import vllm; assert vllm.__version__ == "0.27.1", vllm.__version__; print("vllm", vllm.__version__, "(ROCm build) OK")'
+      /app/venv/bin/pip install --no-deps --no-build-isolation /tmp/vllm-src; \
+    cd /; rm -rf /tmp/vllm-src /tmp/sdist /tmp/vllm-0.27.1; \
+    /app/venv/bin/python -c "import vllm; assert vllm.__version__ == '$VLLM_EXPECT_VERSION', vllm.__version__; print('vllm', vllm.__version__, '(ROCm build) OK')"
 
 # Layer 3b: amdsmi -- REQUIRED at runtime, kept out of the requirements file on
 # purpose (cache locality): vLLM's rocm_platform_plugin() decides the platform
@@ -105,8 +129,14 @@ RUN set -e; /app/venv/bin/pip install amdsmi==7.0.2; \
 # Layer 4: this repo -- patches, KVarN, verification. All CPU-only.
 COPY . .
 RUN set -e; SP=$(venv/bin/python -c 'import vllm, os; print(os.path.dirname(vllm.__file__))' | tail -n1); \
-    echo "patching vLLM at $SP"; \
-    for p in patches/*.patch; do echo "== $p"; patch -p1 -d "$SP" < "$p"; done; \
+    echo "patching vLLM at $SP (source=$VLLM_SOURCE)"; \
+    for p in patches/*.patch; do \
+      if [ "$VLLM_SOURCE" = git ] && grep -Fxq "$(basename "$p")" patches/port-skip.lst; then \
+        echo "== SKIP $(basename "$p") (on port-skip.lst -- see docs/port-vllm-upstream.md)"; \
+        continue; \
+      fi; \
+      echo "== $(basename "$p")"; patch -p1 -d "$SP" < "$p"; \
+    done; \
     PY=/app/venv/bin/python bash kvarn/install.sh; \
     PY=/app/venv/bin/python bash verify.sh --install
 

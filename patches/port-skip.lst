@@ -1,0 +1,6 @@
+# Patch basenames SKIPPED when building the git-source variant
+# (VLLM_SOURCE=git). One file name per line. Everything on this list
+# must be either replaced by native upstream code or rebased -- tracked in
+# docs/port-vllm-upstream.md.
+dflash2-backport.patch
+dflash2-lookup-drafting.patch
