@@ -147,3 +147,21 @@ Reading: DFlash2 WORKS on RDNA4 on this tree. It is not the daily-driver
 speed king (daily MTP ~= 65 tok/s single stream) - with accept_len ~2 the
 7-token draft budget overshoots; DFLASH_TOKENS=3..4 is the obvious tuning
 follow-up, and KVarN CTX=huge is the reason this branch exists.
+
+## DFLASH_TOKENS tuning sweep (single stream, 4x160 tok, temp 0) - 2026-08-27
+
+| T | acceptance | accept len | throughput |
+|---|---|---|---|
+| 3 | 44.6% | 1.34 | 47.2 tok/s |
+| 4 | 40.1% | 1.60 | 52.1 tok/s |
+| 5 | 33.9% | 1.70 | 31.3 tok/s (cold) / 31.3 warm |
+| 7 | 24.8% | 1.73 | 33.0 tok/s |
+
+MTP on the SAME image for reference: 36.9% acceptance, accept len 1.47,
+42.4 tok/s single stream.
+
+Winner: DFLASH_TOKENS=4 -> 52.1 tok/s, +23% over MTP on the identical
+image (and MTP itself regressed 65 -> 42 vs the 0.27.1 image, separate
+issue). Batched(4) at T=4: 39.8-48.2% acceptance, 69.5 tok/s aggregate.
+Deployed as the serving config: .env SPEC=dflash2 DFLASH_TOKENS=4 +
+docker-compose.port.yml.
