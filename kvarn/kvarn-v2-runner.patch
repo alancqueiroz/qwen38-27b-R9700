@@ -4,11 +4,13 @@ kvarn-0.27.1.patch, hence applied last. Every hunk carries a
 port(kvarn-v2) marker; the install script verifies marker counts per
 file and fails the build loudly when a hunk does not land.
 
-Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
-- model_runner.py Bug-B guard DROPPED: native gather_batch_req_state now
+Re-cut against 6a9c69fa8513:
+- model_runner.py Bug-B guard DROPPED: native gather_batch_req_state
   threads has_prefill into get_uniform_decode_token_count.
 - speculator.py zeros-guard hunk DROPPED: native _cached_candidate_ids
   already zeros-initialized.
+--- a/model_executor/models/qwen3_dflash.py
++++ b/model_executor/models/qwen3_dflash.py
 @@ -244,6 +244,11 @@
          )
  
@@ -21,6 +23,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
          self.attn = Attention(
              self.num_heads,
              self.head_dim,
+--- a/model_executor/layers/attention/attention.py
++++ b/model_executor/layers/attention/attention.py
 @@ -110,8 +110,33 @@
  
      sizes = attn_backend.get_supported_kernel_block_sizes()
@@ -70,39 +74,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
              # The backend owns its packing
              sw_per_token = self.attn_backend.customize_spec(
                  SlidingWindowSpec(
-@@ -644,6 +676,32 @@
-                 sliding_window=self.sliding_window,
-                 page_size_padded=shared_page,
-             )
-+        # port(0.27.1): KVarN branch (mirrors the TQ branch above; passes
-+        # kv_quant_mode=quant_mode, which the 0.23 KVarN hunk did not have).
-+        elif self.kv_cache_dtype.startswith("kvarn_"):
-+            from vllm.model_executor.layers.quantization.kvarn.config import (
-+                KVarNConfig,
-+            )
-+            from vllm.v1.kv_cache_interface import TQFullAttentionSpec
-+
-+            kvarn_cfg = KVarNConfig.from_cache_dtype(
-+                self.kv_cache_dtype, self.head_size
-+            )
-+            # KVarN's per-slot byte count = tile_bytes_aligned / block_size.
-+            # We reuse the TQ spec class because the on-disk layout primitive
-+            # (a uint8 block of per-(token,head) "slots") is the same; only the
-+            # slot semantics differ. This gives the packed per-block page size
-+            # so vLLM allocates blocks at the compressed size.
-+            slot_bytes = kvarn_cfg.tile_bytes_aligned // kvarn_cfg.group
-+            return TQFullAttentionSpec(
-+                block_size=block_size,
-+                num_kv_heads=self.num_kv_heads,
-+                head_size=self.head_size,
-+                head_size_v=self.head_size,
-+                dtype=self.kv_cache_torch_dtype,
-+                kv_quant_mode=quant_mode,
-+                tq_slot_size=slot_bytes,
-+            )
-         else:
-             return FullAttentionSpec(
-                 block_size=block_size,
+--- a/v1/core/kv_cache_utils.py
++++ b/v1/core/kv_cache_utils.py
 @@ -679,6 +679,16 @@
          else g.kv_cache_spec.block_size
          for g in groups
@@ -131,6 +104,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
          isinstance(g.kv_cache_spec, MambaSpec)
          and g.kv_cache_spec.mamba_cache_mode != "align"
          for g in groups
+--- a/v1/core/kv_cache_coordinator.py
++++ b/v1/core/kv_cache_coordinator.py
 @@ -601,8 +601,13 @@
          group_block_sizes = [
              manager.block_size for manager in self.single_type_managers
@@ -146,6 +121,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
          ), (
              "Each KV cache group's real block_size must be divisible by "
              f"hash_block_size. block_sizes={group_block_sizes}, "
+--- a/v1/core/single_type_kv_cache_manager.py
++++ b/v1/core/single_type_kv_cache_manager.py
 @@ -918,9 +918,17 @@
          assert dcp_world_size == 1, "DCP not support sliding window attn now."
          assert pcp_world_size == 1, "PCP not support sliding window attn now."
@@ -188,6 +165,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
  
  class ChunkedLocalAttentionManager(SingleTypeKVCacheManager):
      def __init__(self, kv_cache_spec: ChunkedLocalAttentionSpec, **kwargs) -> None:
+--- a/v1/worker/gpu/model_states/mamba_hybrid.py
++++ b/v1/worker/gpu/model_states/mamba_hybrid.py
 @@ -109,8 +109,18 @@
          self.num_accepted_tokens_gpu[req_index].fill_(1)
          if self._align_mode:
@@ -208,6 +187,8 @@ Changes vs the 0.27.1-era cut, re-cut against 6a9c69fa8513:
              )
  
      def _get_mamba_group_info(
+--- a/v1/worker/gpu/spec_decode/dflash2/speculator.py
++++ b/v1/worker/gpu/spec_decode/dflash2/speculator.py
 @@ -68,6 +68,11 @@
              scores,
              mask=mask & valid,
