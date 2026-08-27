@@ -16,6 +16,7 @@ NOSRV=0; INSTALL=0
 for a in "$@"; do case "$a" in --no-server) NOSRV=1;; --install) INSTALL=1; NOSRV=1;; esac; done
 FAILS=0
 ok()   { printf "  PASS  %s\n" "$1"; }
+skip() { printf "  SKIP  %s\n" "$1"; }
 warn() { printf "  WARN  %s\n" "$1"; }
 fail() { printf "  FAIL  %s\n" "$1"; FAILS=$((FAILS+1)); }
 MODEL=${MODEL:-$HERE/models/Qwen3.8-27B-W4A16-AutoRound}
@@ -77,6 +78,13 @@ echo "== vLLM patches (patches/*.patch)"
 # The reverse dry-run is exact, but two patches touching the same file (the DFlash2 pair)
 # can no longer be reversed individually once both are applied; then look for their content.
 for p in patches/*.patch; do
+  # Git-variant builds (upstream port, docs/port-vllm-upstream.md) drop the
+  # patches listed in patches/port-skip.lst on purpose: native upstream code
+  # replaced them. Same contract as the Dockerfile patch loop.
+  if [ "${VLLM_SOURCE:-sdist}" = git ] && grep -Fxq "$(basename "$p")" patches/port-skip.lst 2>/dev/null; then
+    skip "$(basename $p) (on port-skip.lst -- native upstream code)"
+    continue
+  fi
   if patch -p1 -R --dry-run -s -d "$SP" < "$p" >/dev/null 2>&1; then ok "$(basename $p) applied"
   elif $PY patches/_check_applied.py "$p" "$SP" 2>/dev/null; then ok "$(basename $p) applied (content check; hunks overlap another patch)"
   elif patch -p1 -N --dry-run -s -d "$SP" < "$p" >/dev/null 2>&1; then fail "$(basename $p) NOT applied (patch -p1 -d $SP < $p)"
@@ -163,7 +171,13 @@ fi
 echo "== single-user DFlash2 drafter (optional, SPEC=dflash2)"
 if [ -f "$HERE/models/Qwen3.8-27B-DFlash2-W4A16/config.json" ]; then
   $PY -c "import json,sys; c=json.load(open('$HERE/models/Qwen3.8-27B-DFlash2-W4A16/config.json')); assert c['architectures']==['DFlash2DraftModel'] and c['quantization_config']['quant_method']=='compressed-tensors'" 2>/dev/null && ok "DFlash2 drafter present, W4A16 (models/Qwen3.8-27B-DFlash2-W4A16)" || fail "models/Qwen3.8-27B-DFlash2-W4A16 is not a quantized DFlash2DraftModel checkpoint"
-  [ -f "$SP/model_executor/models/qwen3_dflash2.py" ] || fail "DFlash2 drafter present but patches/dflash2-backport.patch not applied"
+  if [ ! -f "$SP/model_executor/models/qwen3_dflash2.py" ] && [ ! -f "$SP/model_executor/models/qwen3_dflash.py" ]; then
+    if [ "${VLLM_SOURCE:-sdist}" = git ]; then
+      fail "DFlash2 drafter present but neither the native port (qwen3_dflash.py) nor patches/dflash2-backport.patch is applied"
+    else
+      fail "DFlash2 drafter present but patches/dflash2-backport.patch not applied"
+    fi
+  fi
 elif [ -f "$HERE/models/Qwen3.8-27B-DFlash2/config.json" ]; then warn "only the bf16 DFlash2 drafter is present (3.85 GB; venv/bin/python prepare/fetch_dflash2.py for the 1 GB W4A16 one)"
 else warn "no DFlash2 drafter (venv/bin/python prepare/fetch_dflash2.py; SPEC=dflash2 single-user mode needs it)"; fi
 
