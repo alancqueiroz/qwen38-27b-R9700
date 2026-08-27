@@ -1,0 +1,30 @@
+# Upstream-port experiment override (branch amd-r9700-vllm-53628).
+# Use ON TOP of docker-compose.amd.yml to serve the port image instead of the
+# pinned 0.27.1 line:
+#
+#   docker compose -f docker-compose.amd.yml -f docker-compose.port.yml \
+#     --profile single up -d
+#
+# VLLM_SOURCE=git is a runtime marker for verify.sh (the build arg does not
+# leak into the container): it makes the patch audit honor port-skip.lst,
+# whose entries are replaced by native upstream code. EXPERIMENTAL=1 lifts
+# the launcher's SPEC=dflash2 gate for the acceptance probes -- that gate
+# encodes the 0.27.1 verdict, which is exactly what this image re-tests.
+services:
+  prepare:
+    image: qwen38-r9700:vllm-port
+  amd-single:
+    image: qwen38-r9700:vllm-port
+    environment:
+      VLLM_SOURCE: git
+      EXPERIMENTAL: "1"
+      # The on-disk W4A16 drafter was requantized against the OLD 0.27.1-era
+      # drafter architecture (it has attention_conv weights the native
+      # DFlash2Qwen3Model does not have) -- serve the ORIGINAL bf16 drafter,
+      # whose architecture matches upstream natively.
+      DRAFT: /app/models/Qwen3.8-27B-DFlash2
+  amd-batch:
+    image: qwen38-r9700:vllm-port
+    environment:
+      VLLM_SOURCE: git
+      EXPERIMENTAL: "1"
