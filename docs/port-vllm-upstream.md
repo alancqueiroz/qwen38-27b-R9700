@@ -165,3 +165,23 @@ image (and MTP itself regressed 65 -> 42 vs the 0.27.1 image, separate
 issue). Batched(4) at T=4: 39.8-48.2% acceptance, 69.5 tok/s aggregate.
 Deployed as the serving config: .env SPEC=dflash2 DFLASH_TOKENS=4 +
 docker-compose.port.yml.
+
+## Branch amd-r9700-vllm-v0280: retarget to the v0.28.0 release
+
+Motivation (checked 2026-08-27):
+- v0.28.0 (2cf0a6915c) contains the DFlash2 load fix (#53435) our
+  dflash2-decoder-layer-cls.patch backported -> that patch is now redundant
+  and moved to port-skip.lst.
+- PR #53628 is STILL open and its head diff is unchanged -> keep vendoring
+  patches/upstream/53628-prefix-prefill-swa-nan.diff (pre-applies cleanly on
+  v0.28.0).
+- syv-ai main gained 4 functional patches. Audit vs v0.28.0:
+  * int4-kv-per-token-head: applies clean (Triton, opt-in KV dtype) -> INCLUDED
+    via patches/v0280/ (git variant only).
+  * offload-dflash-eagle-groups: applies clean (inert KV connector) -> INCLUDED.
+  * marlin-repack-staged-sm80: NVIDIA sm80-only -> NOT ported.
+  * dflash2-ngram-chains (+431 lines): 8 hunks need recut -> DEFERRED; it is
+    the top candidate for future acceptance gains on verbatim-heavy tasks.
+- KVarN patches (recut for 6a9c69f) apply clean on v0.28.0: 0 failed hunks.
+- Stacked audit on v0.28.0: 12 applied / 0 failed / 4 skipped
+  (3 drops + the redundant backport).

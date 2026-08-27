@@ -27,8 +27,8 @@ FROM ${BASE_IMAGE}
 # exactly; the git variant exists for the upstream-port experiment tracked in
 # docs/port-vllm-upstream.md (branch amd-r9700-vllm-53628).
 ARG VLLM_SOURCE=sdist          # sdist | git
-ARG VLLM_GIT_REF=v0.27.1       # tag, or FULL 40-hex commit SHA (short SHAs are not fetchable refs on GitHub)
-ARG VLLM_REQ_REF=v0.27.1       # ref used for requirements/*.txt downloads
+ARG VLLM_GIT_REF=v0.28.0       # tag, or FULL 40-hex commit SHA (short SHAs are not fetchable refs on GitHub)
+ARG VLLM_REQ_REF=v0.28.0       # ref used for requirements/*.txt downloads
 ARG VLLM_UPSTREAM_PATCH=none   # file under patches/upstream/, applied pre-install in the git tree
 ARG VLLM_EXPECT_VERSION=0.27.1 # sdist: asserted after install | git: dist version to declare ('auto' derives from git tags)
 
@@ -148,6 +148,11 @@ RUN set -e; SP=$(venv/bin/python -c 'import vllm, os; print(os.path.dirname(vllm
       fi; \
       echo "== $(basename "$p")"; patch -p1 -d "$SP" < "$p"; \
     done; \
+    if [ "$VLLM_SOURCE" = git ] && ls patches/v0280/*.patch >/dev/null 2>&1; then \
+      for p in patches/v0280/*.patch; do \
+        echo "== v0280 $(basename "$p")"; patch -p1 -d "$SP" < "$p"; \
+      done; \
+    fi; \
     PY=/app/venv/bin/python bash kvarn/install.sh; \
     PY=/app/venv/bin/python bash verify.sh --install
 

@@ -5,3 +5,4 @@
 dflash2-backport.patch
 dflash2-lookup-drafting.patch
 xgrammar-spec-terminated.patch
+dflash2-decoder-layer-cls.patch
