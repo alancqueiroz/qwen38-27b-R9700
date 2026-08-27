@@ -107,3 +107,17 @@ the exact pinned sdist line; `main`/`amd-r9700` remain the PR-facing state.
 patches applied cumulatively): **12 applied / 0 failed / 3 skipped-dropped**.
 The three skips are permanent drops replaced by native upstream code:
 dflash2-backport, dflash2-lookup-drafting, xgrammar-spec-terminated.
+
+## Open work items after the first green build
+
+1. KVarN port rebasing (the big one). Drift vs `6a9c69fa8513` measured:
+   - `kvarn/kvarn-0.27.1.patch`: 3 problem hunks (config/cache.py,
+     layers/attention/attention.py, platforms/{cuda,interface}.py,
+     utils/torch_utils.py);
+   - `kvarn/kvarn-v2-runner.patch`: 8 problem hunks (targets include
+     qwen3_dflash.py -- now NATIVE upstream).
+   The install script's port(kvarn-v2) marker verification makes any partial
+   application fail the image build loudly; until these are recut, expect the
+   git-variant build to fail at Layer 4 with an actionable message.
+2. First-boot GPU protocol (only when the card is free, PPT cap active):
+   DFlash2 probes single-request before batched per the #53323 lesson.
