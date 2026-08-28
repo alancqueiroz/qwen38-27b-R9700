@@ -66,6 +66,13 @@ if [ "$CTX" = "fast" ]; then
   # No explicit --attention-backend: let the ROCm build pick its default.
   # Forcing FLASH_ATTN would name a CUDA-backend enum that may not exist here.
   ATTN_ARGS="--kv-cache-dtype bfloat16"
+  # Measured on the v0.28.0 port tree (vllm-port0280, 2026-08-27): the
+  # split-KV verify hook is a net WIN for dflash2's multi-query verify
+  # (52.1 vs 44.0 tok/s) and a net LOSS for MTP (50.7 with it off vs 42.4
+  # on). Default per spec; SPEC_ATTN still overrides explicitly.
+  if [ -z "${SPEC_ATTN:-}" ]; then
+    if [ "$SPEC" = mtp ] && [ "${VLLM_SOURCE:-}" = git ]; then SPEC_ATTN=0; else SPEC_ATTN=1; fi
+  fi
   export VLLM_SPEC_DECODE_ATTN=${SPEC_ATTN:-1}
 elif [ "$CTX" = "huge" ]; then
   MAX_LEN=${MAX_LEN:-200000}
