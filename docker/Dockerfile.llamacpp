@@ -1,0 +1,60 @@
+# llama.cpp master on ROCm for the AMD Radeon AI PRO R9700 (RDNA4, gfx1201).
+#
+# Branch amd-r9700-llamacpp. Built from git master so we pick up the native
+# speculative family (MTP / DFlash / DSpark / Eagle3 / ngram) that mirrors the
+# vLLM port stack. See:
+#   https://rocm.docs.amd.com/projects/llama-cpp/en/latest/install/llama-cpp-install.html
+#   https://rocm.docs.amd.com/projects/ai-ecosystem/en/latest/optimization/model-acceleration-libs.html
+#
+# Base: same ROCm userspace as the vLLM port image (7.2.4) -- proven on this
+# host (kernel 7.0 amdgpu in-tree + host userspace 6.4.2; containers carry
+# their own /opt/rocm, the host only provides amdgpu/KFD).
+ARG BASE_IMAGE=rocm/dev-ubuntu-24.04:7.2.4-complete
+FROM ${BASE_IMAGE}
+
+ARG LLAMA_GIT_REF=main
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git cmake ninja-build ccache build-essential \
+      libcurl4-openssl-dev curl python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+RUN git clone --depth 1 \
+      $( [ "${LLAMA_GIT_REF}" = "main" ] && echo https://github.com/ggml-org/llama.cpp.git || echo https://github.com/ggml-org/llama.cpp.git ) \
+      llama.cpp \
+    && cd llama.cpp \
+    && if [ "${LLAMA_GIT_REF}" != "main" ]; then git fetch --depth 1 origin "${LLAMA_GIT_REF}" && git checkout FETCH_HEAD; fi \
+    && git rev-parse HEAD > /opt/llama.cpp-commit.txt
+
+# GGML_HIP + gfx1201 per the ROCm install guide; rocWMMA flash-attention for
+# gfx12 (model-acceleration-libs page) enabled -- it is a GEMM/FA accelerator
+# and fails the build loudly if the image lacks rocwmma headers.
+WORKDIR /opt/llama.cpp
+RUN cmake -B build -S . -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DGGML_HIP=ON \
+      -DAMDGPU_TARGETS=gfx1201 \
+      -DGPU_TARGETS=gfx1201 \
+      -DGGML_HIP_ROCWMMA_FATTN_GFX12=ON \
+      -DLLAMA_CURL=ON \
+      -DGGML_BACKEND_DL=OFF \
+    && cmake --build build --target llama-server llama-cli -j "$(( $(nproc) / 2 ))" \
+    && cp build/bin/llama-server build/bin/llama-cli /usr/local/bin/ \
+    && llama-server --version
+
+ENV ROCBLAS_USE_HIPBLASLT=1
+ENV HOME=/cache
+WORKDIR /cache
+
+# Runtime knobs (all optional):
+#   MODEL        absolute path to the main .gguf inside the container
+#   SPEC         none | mtp | dflash
+#   DRAFT        absolute path to the sidecar .gguf (mtp/dflash drafter)
+#   CTX          context size in tokens (default 65536)
+#   NGL          layers on GPU (default 999 = all)
+#   PORT         listen port (default 18021)
+#   EXTRA_ARGS   appended verbatim to llama-server
+COPY run-llamacpp.sh /usr/local/bin/run-llamacpp.sh
+RUN chmod +x /usr/local/bin/run-llamacpp.sh
+ENTRYPOINT ["run-llamacpp.sh"]

@@ -1,0 +1,52 @@
+# llama.cpp experiment stack (branch amd-r9700-llamacpp).
+# Build:   docker compose -f docker-compose.llamacpp.yml build
+# Serve:   GGUF_DIR=/home/alan/modelos SPEC=mtp \
+#          docker compose -f docker-compose.llamacpp.yml --profile single up -d
+#
+# Sidecars (download once, CPU-only):
+#   curl -L -o /home/alan/modelos/mtp-Qwen3.8-27B-Q4_0.gguf \
+#     https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
+#   curl -L -o /home/alan/modelos/Qwen3.8-27B-DFlash2-zlab-Q8_0.gguf \
+#     https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2-GGUF/resolve/main/Qwen3.8-27B-DFlash2-Q8_0.gguf
+
+x-llamacpp: &llamacpp
+  image: qwen38-r9700:llamacpp
+  build:
+    context: docker
+    dockerfile: Dockerfile.llamacpp
+  ipc: host
+  environment:
+    HOME: /cache
+    MODEL: /app/gguf/Qwen3.8-27B-Q5_K_M.gguf
+    SPEC: ${SPEC:-none}
+    DRAFT: ${DRAFT:-}
+    CTX: ${LLCPP_CTX:-65536}
+    PORT: ${LLCPP_PORT:-18021}
+    EXTRA_ARGS: ${LLCPP_EXTRA_ARGS:-}
+  devices:
+    - /dev/kfd
+    - /dev/dri
+  group_add:
+    - "${VIDEO_GID:-44}"
+    - "${RENDER_GID:-992}"
+  volumes:
+    - ${GGUF_DIR:-/home/alan/modelos}:/app/gguf
+    - qwen-cache-llamacpp:/cache
+  ports:
+    - "${LLCPP_PORT:-18021}:${LLCPP_PORT:-18021}"
+  restart: unless-stopped
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://127.0.0.1:${LLCPP_PORT:-18021}/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 600s
+
+services:
+  llamacpp-single:
+    <<: *llamacpp
+    profiles: [single]
+
+volumes:
+  qwen-cache-llamacpp:
