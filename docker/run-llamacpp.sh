@@ -27,8 +27,10 @@ ARGS+=(--flash-attn on)
 
 case "$SPEC" in
   mtp)
-    [ -n "$DRAFT" ] || { echo "[run-llamacpp] SPEC=mtp requires DRAFT=<mtp sidecar gguf>" >&2; exit 2; }
-    ARGS+=(--model-draft "$DRAFT" --spec-type draft-mtp --spec-draft-ngl 999)
+    # The unsloth main GGUF carries the native nextn (MTP) layer, so the
+    # sidecar is optional: DRAFT empty => in-model MTP head.
+    if [ -n "$DRAFT" ]; then ARGS+=(--model-draft "$DRAFT"); fi
+    ARGS+=(--spec-type draft-mtp --spec-draft-ngl 999)
     ;;
   dflash)
     [ -n "$DRAFT" ] || { echo "[run-llamacpp] SPEC=dflash requires DRAFT=<dflash sidecar gguf>" >&2; exit 2; }
