@@ -292,3 +292,22 @@ for the daily unit**, 240 W reserved for unattended long runs. Remaining item:
 validate the next cold-compile boot under 260 W (kill phase number 2) before
 calling it immune. Microsecond transients stay invisible to software -- every
 step above remains an experiment.
+
+## CTX=long (128K) serving profile — validated 2026-08-28
+
+`CTX=long SPEC=dflash2 DFLASH_TOKENS=4 PREFIX_CACHE=1 EXPERIMENTAL=1` on the
+`qwen38-r9700:vllm-port0280` image:
+
+- max_model_len 131072; KV `int8_per_token_head` on `TRITON_ATTN`;
+  KV pool 7.44 GiB = 192,069 tokens (1.47x concurrency at full 131k).
+- Short-prompt decode: ~43.8 tok/s sequential (vs 52.1 on the 64k bf16
+  profile — the int8-KV/Triton tax).
+- 82k-token prompt: works, no corruption; first prefill ~531 s
+  (chunked prefill 2048, ~155 tok/s); identical re-request with prefix
+  caching drops to ~59 s; decode at that depth stays in the ~30-40 tok/s
+  class. Filling 128k cold takes ~14 min — batch long prefills accordingly.
+- DSH integration (`~/.dsh/settings.yaml`): provider `qwen-amd` ->
+  `http://127.0.0.1:18020/v1`, model `qwen3.8-27b`, contextWindow 131072,
+  maxTokens 24576 (post-compaction headroom rule), text-only.
+  compaction-basic then auto-compacts at floor(0.8*131072)=104,857 tokens
+  and recovers on provider-confirmed overflow.
