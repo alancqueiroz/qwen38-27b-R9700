@@ -196,3 +196,20 @@ Motivation (checked 2026-08-27):
 Parity with the 6a9c69f+#53628 image (52.1 / 69.5), identical temp-0
 outputs (same tlen per prompt), 0 restarts. Serving stack now runs
 qwen38-r9700:vllm-port0280 via docker-compose.port.yml.
+
+## MTP regression bisected: the split-KV spec-verify hook - 2026-08-27
+
+Old 0.27.1 image MTP: 53.6 tok/s. New tree MTP with the spec-decode-attn
+hook on: 42.4 (-21%). Bisect on the v0.28.0 image:
+
+| spec | hook ON | hook OFF |
+|---|---|---|
+| MTP (4 tokens) | 42.4 tok/s | 50.7 tok/s |
+| dflash2 (T=4) | 52.1 tok/s | 44.0 tok/s |
+
+The hook (patches/spec-decode-attn.patch, cut for the 0.27.1 attention
+internals) is a net WIN for dflash2's multi-query verify and a net LOSS
+for MTP on this tree. Launcher now defaults SPEC_ATTN per spec when
+VLLM_SOURCE=git (mtp -> off, dflash2 -> on); SPEC_ATTN still overrides.
+Long-context verify (>32k) untested either way - the 0.27.1 measurements
+that motivated the hook were taken at 128k.
