@@ -28,11 +28,11 @@ ARGS+=(--flash-attn on)
 case "$SPEC" in
   mtp)
     [ -n "$DRAFT" ] || { echo "[run-llamacpp] SPEC=mtp requires DRAFT=<mtp sidecar gguf>" >&2; exit 2; }
-    ARGS+=(--model-draft "$DRAFT" --spec-type mtp --spec-draft-ngl 999)
+    ARGS+=(--model-draft "$DRAFT" --spec-type draft-mtp --spec-draft-ngl 999)
     ;;
   dflash)
     [ -n "$DRAFT" ] || { echo "[run-llamacpp] SPEC=dflash requires DRAFT=<dflash sidecar gguf>" >&2; exit 2; }
-    ARGS+=(--model-draft "$DRAFT" --spec-type dflash --spec-draft-ngl 999)
+    ARGS+=(--model-draft "$DRAFT" --spec-type draft-dflash --spec-draft-ngl 999)
     ;;
   none) : ;;
   *) echo "[run-llamacpp] unknown SPEC='$SPEC' (none|mtp|dflash)" >&2; exit 2 ;;
