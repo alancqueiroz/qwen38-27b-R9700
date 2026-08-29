@@ -311,3 +311,22 @@ step above remains an experiment.
   maxTokens 24576 (post-compaction headroom rule), text-only.
   compaction-basic then auto-compacts at floor(0.8*131072)=104,857 tokens
   and recovers on provider-confirmed overflow.
+
+## Prefix cache reporting (2026-08-29)
+
+The DSH harness showed `Cache hit 0%` for local sessions while the engine's
+own metrics proved caching worked (`vllm:prefix_cache_hits_total` advancing,
+A/B identical-prefix requests 2.5x faster on the second call). Root cause:
+this build serves `usage.prompt_tokens_details.cached_tokens` only behind
+`--enable-prompt-tokens-details` (default OFF in
+`entrypoints/openai/cli_args.py`), and that field is exactly what clients
+(pi-ai -> DSH `cacheReadTokens`) use for the hit-rate stat.
+
+Fix: the launcher now passes `--enable-prompt-tokens-details` unconditionally.
+Also parameterized `--max-num-batched-tokens` (`MAX_BATCHED_TOKENS`, default
+4096) - note vLLM clamps scheduled tokens to 2048 while speculative decoding
+is active, so the knob only pays off in a no-spec profile.
+
+Reminder: the prefix cache is in-memory; every container recreate wipes it and
+the next turn re-prefills the whole session (~100k tokens at ~155 tok/s
+prefill ≈ 10-11 min of TTFT). vramd-style GPU handoffs accept that cost.
