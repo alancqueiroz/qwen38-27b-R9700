@@ -20,7 +20,9 @@ x-llamacpp: &llamacpp
     MODEL: /app/gguf/Qwen3.8-27B-Q5_K_M.gguf
     SPEC: ${SPEC:-none}
     DRAFT: ${DRAFT:-}
-    CTX: ${LLCPP_CTX:-65536}
+    CTX: ${LLCPP_CTX:-131072}
+    KV_DTYPE: ${LLCPP_KV_DTYPE:-q8_0}
+    VISION: ${VISION:-0}
     PORT: ${LLCPP_PORT:-18021}
     EXTRA_ARGS: ${LLCPP_EXTRA_ARGS:-}
   devices:
