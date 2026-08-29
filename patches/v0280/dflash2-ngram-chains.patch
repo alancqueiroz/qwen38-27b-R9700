@@ -34,6 +34,7 @@
 +        # runs at capture time only; the one thing crossing GPU->host is a
 +        # captured D2H memcpy of a per-request flag into pinned memory,
 +        # replayed by the graph every step exactly like the kernels around it.
++        self._req_temp_np = None  # set by set_temperature_host_view (UVA host view)
 +        self._chain = os.environ.get("VLLM_DFLASH2_CHAIN", "0") == "1"
 +        if self._chain and not self._lookup:
 +            logger.warning(
@@ -57,7 +58,6 @@
 +            self._chain_greedy_only = (
 +                os.environ.get("VLLM_DFLASH2_CHAIN_GREEDY_ONLY", "1") == "1"
 +            )
-+            self._req_temp_np = None
 +            self._chain_ev_gpu = torch.zeros(
 +                self.max_num_reqs, dtype=torch.int32, device=device
 +            )
@@ -366,6 +366,18 @@
  
      def _cache_draft_logits(self, candidate_ids: torch.Tensor, num_sample: int) -> None:
          draft_logits = self.draft_logits
+@@ -315,7 +637,10 @@
+         )
+         if self.draft_logits is not None:
+             self._cache_draft_logits(candidate_ids, num_sample)
+-        self._apply_lookup(num_reqs)
++            # The point-mass rewrite needs the sparse logits cache, which only
++            # exists outside memory profiling; during profiling the proposal is
++            # irrelevant (nothing is verified).
++            self._apply_lookup(num_reqs)
+ 
+     def _apply_lookup(self, num_reqs: int) -> None:
+         '''Fuse the drafted block with the continuation of an earlier occurrence of the
 --- a/v1/worker/gpu/model_runner.py
 +++ b/v1/worker/gpu/model_runner.py
 @@ -1859,6 +1859,13 @@
