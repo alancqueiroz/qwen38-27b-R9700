@@ -269,5 +269,6 @@ exec venv/bin/vllm serve "$MODEL" \
   --speculative-config "$SPEC_CFG" \
   --compilation-config "$COMP_CFG" \
   --reasoning-parser qwen3 \
+  --enable-prompt-tokens-details \
   ${TOOL_ARGS} \
   ${EXTRA_ARGS}
