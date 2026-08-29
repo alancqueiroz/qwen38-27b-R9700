@@ -265,7 +265,7 @@ exec venv/bin/vllm serve "$MODEL" \
   $ATTN_ARGS \
   --mamba-ssm-cache-dtype float16 \
   ${ASYNC_ARGS} \
-  --max-num-batched-tokens 2048 \
+  --max-num-batched-tokens ${MAX_BATCHED_TOKENS:-4096} \
   --speculative-config "$SPEC_CFG" \
   --compilation-config "$COMP_CFG" \
   --reasoning-parser qwen3 \
