@@ -12,7 +12,7 @@
 # encodes the 0.27.1 verdict, which is exactly what this image re-tests.
 services:
   prepare:
-    image: qwen38-r9700:vllm-port
+    image: qwen38-r9700:vllm-port0280
   amd-single:
     image: qwen38-r9700:vllm-port0280
     environment:
