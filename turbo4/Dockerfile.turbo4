@@ -1,0 +1,32 @@
+# =============================================================================
+# ROCmFPX TurboQuant turbo4 - variante VULKAN com fork AtomicBot (TurboQuant)
+# Binario pre-compilado do release b10269-1.5.1 (CI do fork, backend Vulkan).
+# KV cache: -ctk/-ctv turbo4 (WHT + PolarQuant 4-bit) + MTP via --spec-type nextn
+# =============================================================================
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV AMD_VULKAN_ICD=RADV
+ENV RADV_PERFTEST="gpl,sam,nggc"
+ENV HOST=0.0.0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvulkan1 mesa-vulkan-drivers vulkan-tools libgomp1 \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG TQ_REF=b10269-1.5.1
+RUN curl -fsSL -o /tmp/tq.tar.gz \
+      "https://github.com/AtomicBot-ai/atomic-llama-cpp-turboquant/releases/download/${TQ_REF}/llama-turboquant-linux-x64-vulkan.tar.gz" \
+    && mkdir -p /opt/turboquant \
+    && tar -xzf /tmp/tq.tar.gz -C /opt/turboquant \
+    && rm /tmp/tq.tar.gz \
+    && /opt/turboquant/build/bin/llama-server --version
+
+ENV PATH=/opt/turboquant/build/bin:${PATH}
+COPY container-launch-turbo4.sh /usr/local/bin/container-launch-turbo4.sh
+RUN chmod +x /usr/local/bin/container-launch-turbo4.sh
+
+WORKDIR /app
+EXPOSE 8090
+ENTRYPOINT ["/usr/local/bin/container-launch-turbo4.sh"]
