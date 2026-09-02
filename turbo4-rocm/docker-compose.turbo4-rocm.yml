@@ -31,6 +31,7 @@ services:
       SPEC: ${SPEC:-none}
       MODEL_DRAFT: ${MODEL_DRAFT:-/models/Qwen3.8-27B-UD-Q4_K_XL.gguf}
       DRAFT_MAX: ${DRAFT_MAX:-2}
+      DRAFT_NGL: ${DRAFT_NGL:-999}
       DRAFT_MIN: ${DRAFT_MIN:-1}
       MMPROJ: ${MMPROJ:-/models/mmproj-Qwen3.8-27B-BF16.gguf}
       VISION: ${VISION:-1}
