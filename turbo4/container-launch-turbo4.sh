@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launcher TurboQuant (fork AtomicBot): Qwen3.8-27B + visao + 96K + KV turbo4 + NextN MTP
+# Launcher TurboQuant (fork AtomicBot): KV turbo4 + visao + spec decoding (nextn|dflash|none)
 set -euo pipefail
 LL="$(command -v llama-server)"
 ARGS=(-m "${MODEL:?MODEL nao definido}")
@@ -15,14 +15,19 @@ fi
 SPEC="${SPEC:-nextn}"
 case "$SPEC" in
   nextn)
-    # caminho shared-model: -md = mesmo arquivo do modelo (usa os nextn.* embutidos no GGUF)
     ARGS+=(--spec-type nextn -ngld "${DRAFT_NGL:-999}")
     if [ -n "${MODEL_DRAFT:-}" ]; then ARGS+=(-md "${MODEL_DRAFT}"); else ARGS+=(-md "${MODEL}"); fi
     [ -n "${DRAFT_MAX:-}" ] && ARGS+=(--spec-draft-n-max "${DRAFT_MAX}")
     [ -n "${DRAFT_MIN:-}" ] && ARGS+=(--spec-draft-n-min "${DRAFT_MIN}")
     ;;
+  dflash)
+    ARGS+=(--spec-type draft-dflash)
+    [ -n "${MODEL_DRAFT:-}" ] && ARGS+=(-md "${MODEL_DRAFT}")
+    [ -n "${DRAFT_MAX:-}" ] && ARGS+=(--spec-draft-n-max "${DRAFT_MAX}")
+    [ -n "${DRAFT_MIN:-}" ] && ARGS+=(--spec-draft-n-min "${DRAFT_MIN}")
+    ;;
   none) : ;;
-  *) echo "[turbo4] SPEC='$SPEC' invalido (nextn|none)" >&2; exit 2 ;;
+  *) echo "[turbo4] SPEC='$SPEC' invalido (nextn|dflash|none)" >&2; exit 2 ;;
 esac
 [ -n "${EXTRA_ARGS:-}" ] && ARGS+=(${EXTRA_ARGS})
 echo "[turbo4] exec: $LL ${ARGS[*]}"

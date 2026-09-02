@@ -1,0 +1,45 @@
+name: rocmfpx-turbo4-hip
+
+services:
+  llama-turbo4-hip:
+    image: ${IMAGE:-rocmfpx-turbo4:hip}
+    build:
+      context: .
+      dockerfile: Dockerfile.turbo4-rocm
+    container_name: rocmfpx-turbo4-hip
+    init: true
+    devices:
+      - /dev/kfd
+      - /dev/dri/renderD128
+    group_add:
+      - "${HOST_GID_VIDEO:-44}"
+      - "${HOST_GID_RENDER:-992}"
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      MODEL: ${MODEL:-/models/Qwen3.8-27B-UD-Q4_K_XL.gguf}
+      CTX: ${CTX:-98304}
+      NGL: ${NGL:-999}
+      CTK_DTYPE: ${CTK_DTYPE:-turbo4}
+      CTV_DTYPE: ${CTV_DTYPE:-turbo4}
+      PARALLEL: ${PARALLEL:-1}
+      THREADS: ${THREADS:-8}
+      THREADS_BATCH: ${THREADS_BATCH:-16}
+      BATCH: ${BATCH:-1024}
+      UBATCH: ${UBATCH:-1024}
+      PORT: ${PORT:-8092}
+      SPEC: ${SPEC:-none}
+      MODEL_DRAFT: ${MODEL_DRAFT:-/models/Qwen3.8-27B-UD-Q4_K_XL.gguf}
+      DRAFT_MAX: ${DRAFT_MAX:-2}
+      DRAFT_MIN: ${DRAFT_MIN:-1}
+      MMPROJ: ${MMPROJ:-/models/mmproj-Qwen3.8-27B-BF16.gguf}
+      VISION: ${VISION:-1}
+      TURBO_AUTO_ASYMMETRIC: ${TURBO_AUTO_ASYMMETRIC:-1}
+      EXTRA_ARGS: ${EXTRA_ARGS:-}
+    volumes:
+      - ${GGUF_DIR:-/home/alan/modelos}:/models:ro
+    ports:
+      - "${PORT:-8092}:${PORT:-8092}"
+    ipc: host
+    ulimits:
+      memlock: -1

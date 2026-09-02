@@ -1,0 +1,23 @@
+# ROCmFPX TurboQuant - variante ROCm/HIP (binario pre-compilado AtomicBot b10269-1.5.1)
+FROM rocm/dev-ubuntu-24.04:7.2-complete
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY tq-rocm.tar.gz /tmp/tq-rocm.tar.gz
+RUN mkdir -p /opt/turboquant \
+    && tar -xzf /tmp/tq-rocm.tar.gz -C /opt/turboquant \
+    && rm /tmp/tq-rocm.tar.gz \
+    && /opt/turboquant/build/bin/llama-server --version
+
+ENV PATH=/opt/turboquant/build/bin:/opt/rocm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH:-}
+COPY container-launch-turbo4.sh /usr/local/bin/container-launch-turbo4.sh
+RUN chmod +x /usr/local/bin/container-launch-turbo4.sh
+
+WORKDIR /app
+EXPOSE 8090
+ENTRYPOINT ["/usr/local/bin/container-launch-turbo4.sh"]
