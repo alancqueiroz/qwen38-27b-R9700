@@ -31,6 +31,7 @@ services:
       DRAFT_MIN: ${DRAFT_MIN:-1}
       MMPROJ: ${MMPROJ:-/models/mmproj-Qwen3.8-27B-BF16.gguf}
       VISION: ${VISION:-1}
+      TURBO_AUTO_ASYMMETRIC: ${TURBO_AUTO_ASYMMETRIC:-1}
       EXTRA_ARGS: ${EXTRA_ARGS:-}
     volumes:
       - ${GGUF_DIR:-/home/alan/modelos}:/models:ro
